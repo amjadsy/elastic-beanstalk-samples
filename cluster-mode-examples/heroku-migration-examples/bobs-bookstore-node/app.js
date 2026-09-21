@@ -5,6 +5,7 @@ const express = require('express');
 const { editPage, indexPage } = require('./views');
 
 const MAX_FIELD_LENGTH = 200;
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 
 function validateBook(body) {
   const title = String(body.title || '').trim();
@@ -38,7 +39,10 @@ function createApp({ database, logger, version = '1.0.0' }) {
   }));
 
   app.use((request, response, next) => {
-    const requestId = request.get('x-request-id') || crypto.randomUUID();
+    const suppliedRequestId = request.get('x-request-id');
+    const requestId = suppliedRequestId && REQUEST_ID_PATTERN.test(suppliedRequestId)
+      ? suppliedRequestId
+      : crypto.randomUUID();
     const startedAt = Date.now();
 
     response.set({
@@ -50,7 +54,10 @@ function createApp({ database, logger, version = '1.0.0' }) {
     });
 
     response.on('finish', () => {
-      logger.info('request completed', {
+      const log = ['/up', '/health'].includes(request.path)
+        ? logger.debug
+        : logger.info;
+      log('request completed', {
         request_id: requestId,
         method: request.method,
         path: request.path,
@@ -212,4 +219,3 @@ module.exports = {
   parseBookId,
   validateBook,
 };
-
