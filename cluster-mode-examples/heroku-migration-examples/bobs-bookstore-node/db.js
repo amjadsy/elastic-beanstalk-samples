@@ -2,12 +2,15 @@
 
 const { Pool } = require('pg');
 
-function createDatabase(options, logger) {
-  const pool = new Pool({
-    ...options,
+function createDatabase(options, logger, createPool = (poolOptions) => new Pool(poolOptions)) {
+  const {
+    healthCheckTimeoutMillis,
+    ...poolOptions
+  } = options;
+  const pool = createPool({
+    ...poolOptions,
     max: 10,
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 5_000,
   });
 
   pool.on('error', (error) => {
@@ -17,19 +20,45 @@ function createDatabase(options, logger) {
   });
 
   async function migrate() {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS books (
-        id         SERIAL PRIMARY KEY,
-        title      VARCHAR(200) NOT NULL,
-        author     VARCHAR(200) NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `);
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+      await client.query(`
+        SELECT pg_advisory_xact_lock(
+          hashtext(current_database()),
+          hashtext('bobs-bookstore-node-schema-v1')
+        )
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS books (
+          id         SERIAL PRIMARY KEY,
+          title      VARCHAR(200) NOT NULL,
+          author     VARCHAR(200) NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `);
+      await client.query('COMMIT');
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        logger.warn('database migration rollback failed', {
+          error: rollbackError.message,
+        });
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async function healthCheck() {
-    await pool.query('SELECT 1');
+    await pool.query({
+      text: 'SELECT 1',
+      query_timeout: healthCheckTimeoutMillis,
+    });
   }
 
   async function listBooks(searchTerm = '') {
@@ -91,4 +120,3 @@ function createDatabase(options, logger) {
 }
 
 module.exports = { createDatabase };
-
