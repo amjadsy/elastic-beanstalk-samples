@@ -21,6 +21,16 @@ test('maps sslmode=require to encrypted non-verifying TLS', () => {
   assert.doesNotMatch(options.connectionString, /sslmode/);
 });
 
+test('rejects verify-ca because Node performs hostname verification', () => {
+  assert.throws(
+    () => createDatabaseOptions({
+      DATABASE_URL: 'postgresql://example.com:5432/bookstore?sslmode=verify-ca',
+      DATABASE_CA_CERT: 'certificate',
+    }),
+    /Unsupported DATABASE_SSL_MODE/,
+  );
+});
+
 test('requires a CA for certificate verification', () => {
   assert.throws(
     () => createDatabaseOptions({
@@ -47,5 +57,14 @@ test('rejects invalid ports', () => {
     () => createRuntimeConfig({ PORT: '70000' }),
     /PORT must be an integer/,
   );
+});
+
+test('uses health-check timeouts below the Cluster Mode probe timeout', () => {
+  const config = createDatabaseOptions({
+    DATABASE_URL: 'postgresql://localhost:5432/bookstore',
+  });
+
+  assert.equal(config.connectionTimeoutMillis, 2_000);
+  assert.equal(config.healthCheckTimeoutMillis, 2_000);
 });
 

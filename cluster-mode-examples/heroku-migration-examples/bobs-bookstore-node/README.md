@@ -31,7 +31,9 @@ npm start
 
 Open `http://localhost:3000`.
 
-The application creates its single `books` table if it does not already exist.
+The application creates its single `books` table if it does not already exist. A
+PostgreSQL advisory lock serializes that startup migration when several replicas start
+at the same time.
 
 ## Endpoints
 
@@ -57,13 +59,15 @@ Configure the Beanstalk load-balancer health check and readiness probe to use
 | `DATABASE_SSL_MODE` | No | Overrides the URL's `sslmode` |
 | `DATABASE_CA_CERT` | For verified TLS | PEM certificate content |
 | `DATABASE_CA_CERT_PATH` | For verified TLS | Path to a PEM certificate |
+| `DATABASE_CONNECTION_TIMEOUT_MS` | No | Database connection timeout; defaults to `2000` |
+| `DATABASE_HEALTH_TIMEOUT_MS` | No | Readiness query timeout; defaults to `2000` |
 
 Supported SSL modes are:
 
 - `disable` for local plaintext PostgreSQL.
 - `require` or `no-verify` for encrypted connections without certificate verification.
-- `verify-ca` or `verify-full` with `DATABASE_CA_CERT` or
-  `DATABASE_CA_CERT_PATH`.
+- `verify-full` with `DATABASE_CA_CERT` or `DATABASE_CA_CERT_PATH` for certificate
+  and hostname verification.
 
 Use certificate verification for production databases whenever the provider supplies a
 trusted CA bundle.
@@ -84,7 +88,8 @@ The runtime image:
 - Uses Node.js 22 on Alpine Linux.
 - Installs only production dependencies.
 - Runs as the non-root `node` user.
-- Uses `/up` for its container health check.
+- Uses `/up` for the Docker-compatible image health check. Cluster Mode configures its
+  readiness and liveness probes separately, using `/health` and `/up`, respectively.
 - Handles `SIGTERM` and closes HTTP and database connections gracefully.
 
 ## Security scope
@@ -95,4 +100,3 @@ limits request-body size, masks database configuration, and emits structured log
 The storefront is intentionally anonymous so that the migration tutorial can focus on
 platform portability. It does not implement authentication, authorization, or CSRF
 protection. Add those controls before adapting the sample to accept real users or data.
-

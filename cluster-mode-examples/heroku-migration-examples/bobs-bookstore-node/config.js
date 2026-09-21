@@ -2,6 +2,16 @@
 
 const fs = require('node:fs');
 
+function parsePositiveInteger(value, fallback, name) {
+  const parsed = Number.parseInt(value || String(fallback), 10);
+
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 60_000) {
+    throw new Error(`${name} must be an integer from 1 through 60000`);
+  }
+
+  return parsed;
+}
+
 function readCertificate(env) {
   if (env.DATABASE_CA_CERT) {
     return env.DATABASE_CA_CERT.replace(/\\n/g, '\n');
@@ -30,19 +40,33 @@ function createDatabaseOptions(env = process.env) {
   parsed.searchParams.delete('sslkey');
   parsed.searchParams.delete('sslrootcert');
 
+  const commonOptions = {
+    connectionString: parsed.toString(),
+    connectionTimeoutMillis: parsePositiveInteger(
+      env.DATABASE_CONNECTION_TIMEOUT_MS,
+      2_000,
+      'DATABASE_CONNECTION_TIMEOUT_MS',
+    ),
+    healthCheckTimeoutMillis: parsePositiveInteger(
+      env.DATABASE_HEALTH_TIMEOUT_MS,
+      2_000,
+      'DATABASE_HEALTH_TIMEOUT_MS',
+    ),
+  };
+
   if (sslMode === 'disable') {
     return {
-      connectionString: parsed.toString(),
+      ...commonOptions,
       ssl: false,
     };
   }
 
-  if (!['require', 'no-verify', 'verify-ca', 'verify-full'].includes(sslMode)) {
+  if (!['require', 'no-verify', 'verify-full'].includes(sslMode)) {
     throw new Error(`Unsupported DATABASE_SSL_MODE: ${sslMode}`);
   }
 
   const ca = readCertificate(env);
-  const verifyCertificate = sslMode === 'verify-ca' || sslMode === 'verify-full';
+  const verifyCertificate = sslMode === 'verify-full';
 
   if (verifyCertificate && !ca) {
     throw new Error(
@@ -51,7 +75,7 @@ function createDatabaseOptions(env = process.env) {
   }
 
   return {
-    connectionString: parsed.toString(),
+    ...commonOptions,
     ssl: verifyCertificate
       ? { ca, rejectUnauthorized: true }
       : { rejectUnauthorized: false },
@@ -76,4 +100,3 @@ module.exports = {
   createDatabaseOptions,
   createRuntimeConfig,
 };
-
